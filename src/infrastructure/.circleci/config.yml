@@ -1,0 +1,74 @@
+version: 2.1
+
+orbs:
+  aws-cli: circleci/aws-cli@1.3.0
+
+executors:
+  default:
+    docker:
+      - image: circleci/node:current
+
+commands:
+  install-dependencies:
+    steps:
+      - run: npm install .
+      - run: cd infrastructure && npm install .
+  cache-dependencies:
+    steps:
+      - save_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+          paths:
+            - ./node_modules
+            - ./infrastructure/node_modules
+  restore-dependencies:
+    steps:
+      - restore_cache:
+          key: dependency-cache-{{ checksum "package.json" }}
+  build-app:
+    steps:
+      - run: npm run build
+  deploy-app:
+    steps:
+      - run: cd infrastructure && npm run deploy
+
+jobs:
+  build:
+    executor: default
+    steps:
+      - checkout
+      - restore-dependencies
+      - install-dependencies
+      - cache-dependencies
+      - build-app
+      - persist_to_workspace:
+          root: ~/
+          paths: project/build
+  deploy:
+    executor: aws-cli/default
+    steps:
+      - checkout
+      - restore-dependencies
+      - install-dependencies
+      - cache-dependencies
+      - attach_workspace:
+          at: ~/
+      - aws-cli/setup
+      - deploy-app
+
+workflows:
+  version: 2
+  ci-master:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only:
+                - master
+      - deploy:
+          context: aws-account
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - master
